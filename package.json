@@ -1,0 +1,29 @@
+{
+  "name": "pi-bash-timeout",
+  "version": "0.1.0",
+  "description": "pi extension: default bash timeout, millisecond-to-second correction, and a hard cap",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "extension",
+    "bash",
+    "timeout"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "files": [
+    "extensions",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/bash-timeout/index.ts"
+    ]
+  }
+}
