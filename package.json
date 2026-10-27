@@ -10,13 +10,22 @@
     "timeout"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iefnaf/pi-bash-timeout.git"
+  },
+  "bugs": {
+    "url": "https://github.com/iefnaf/pi-bash-timeout/issues"
+  },
+  "homepage": "https://github.com/iefnaf/pi-bash-timeout#readme",
   "type": "module",
   "scripts": {
     "test": "bun test"
   },
   "files": [
     "extensions",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
