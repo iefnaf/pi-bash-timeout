@@ -1,6 +1,7 @@
 # pi-bash-timeout
 
-Default, sane-unit, capped `timeout` for pi's `bash` and `powershell` tools.
+`timeout` in **milliseconds** for pi's `bash` and `powershell` tools — aligned with
+Claude Code's Bash tool: **default 120000 ms (2 min), max 600000 ms (10 min)**.
 
 ## Background
 
@@ -33,11 +34,9 @@ Three things fall out of this, and all three bit us in practice:
    | `120000` | 2 min | 33.3 hours |
    | `600000` | 10 min | 7 days |
 
-   In one session the same tool call mixed both conventions without the model noticing: a nested Playwright call correctly used `{ timeout: 45000 }` (milliseconds, 45s), while the enclosing pi `bash` call used `"timeout": 90000` meaning 90 seconds — and got ~25 hours instead.
-
 3. **The accepted range is enormous and unchecked.** The only validation is against `MAX_TIMEOUT_MS` (int32 overflow), so nothing stops a value that is off by 1000x short of ~24.8 days. There's no "this is probably wrong" signal anywhere.
 
-This isn't a crash or a visible error — the call just sits there looking busy, and depending on how you run pi, nothing ever surfaces the mismatch. The fix needs to happen before the command runs, since by the time it times out (if it ever does) the night is already gone.
+This isn't a crash or a visible error — the call just sits there looking busy. The fix needs to happen before the command runs.
 
 ### Why not fix pi itself?
 
@@ -45,23 +44,48 @@ This exact problem has been reported upstream multiple times — unit confusion,
 
 ## What it does
 
-| Model passes | Extension sets | Note added to the result |
-|---|---|---|
-| nothing | `120` (seconds) | only if the command then timed out |
-| `30` | `30` (unchanged) | — |
-| `90000` (≥ 10000) | `90` — read as milliseconds | yes |
-| `3600` | `1800` — capped | yes |
-| `0`, `-1`, `"60"` | unchanged | — (left for pi's own validation to reject) |
+Earlier versions of this extension hooked `tool_call` and *guessed* the unit from
+magnitude (`>= 10000` → milliseconds). That heuristic had an unfixable blind spot:
+`5000` meaning 5 seconds was read as 5000 seconds, while `1200` meaning 20 minutes
+was read as 1.2 seconds — a bare number carries no unit. **v0.2 removes the
+guessing entirely** by re-declaring the tool:
 
-Applies to both `bash` and `powershell` tool calls.
+| Model passes | What happens |
+|---|---|
+| nothing | default `120000` ms (120 s) applies |
+| `30000` | 30 seconds — read as milliseconds, like Claude Code |
+| `5000` | 5 seconds — no blind spot, small values are milliseconds too |
+| `600001`+ | **rejected by schema validation** with a clear message; model retries |
+| `0`, `-1`, `"60"` | rejected by schema validation |
+
+The schema the model sees — and that arguments are validated against *before* the
+tool runs — states the unit, the default, and the maximum. A wrong unit or an
+over-max value becomes an explicit validation error instead of a silent misread.
 
 ## How it works
 
-It hooks the `tool_call` event and mutates `event.input.timeout` **in place**, before pi's bash implementation ever sees it — it does not re-register or wrap the `bash` tool. That keeps the built-in tool, its renderer, and any other extension that also touches bash (permission gates, loggers, etc.) working unmodified, and it also covers bash calls made indirectly from a codemode script, since those go through the same hook.
+The extension registers tools named `bash` and `powershell`, which override the
+built-ins by name (pi's documented tool-override mechanism). The registration
+spreads pi's own tool definitions (`createBashToolDefinition` /
+`createPowerShellToolDefinition`), so renderers, output schema, prompt snippets,
+and constrained sampling stay identical; only the `timeout` parameter is
+re-declared in milliseconds, and `execute` converts to whole seconds at the
+boundary (sub-second values round up to pi's 1-second granularity) before
+delegating to pi's implementation.
 
-When it changed something worth telling the model about, a `tool_result` handler appends a short note (prefixed `[pi-bash-timeout]`) to the tool output, so the model can self-correct on the next call instead of silently having its intent overridden forever.
+Because it's the same tool name:
 
-The core normalization (`normalizeTimeout`, `noteFor`) lives in `extensions/bash-timeout/core.ts` with no pi imports, so it's unit-testable on its own.
+- other extensions' `tool_call` hooks (permission gates, loggers) still see `bash`
+  calls and keep working;
+- `codemode` scripts calling `tools.bash` get the same millisecond semantics;
+- user shell settings (`shellPath`, `shellCommandPrefix`) are honored.
+
+If no `timeout` is given, the default is applied before delegation — pi itself
+would arm no timer at all.
+
+`powershell` is registered with `defaultActive: false`: it stays out of the toolset
+exactly as before unless you enabled it yourself (`--tools powershell` or the
+`defaultTools` setting).
 
 ## Install
 
@@ -73,18 +97,24 @@ pi -e /path/to/pi-bash-timeout
 
 ## Configure
 
-No config file — three env vars, read once at session start:
+No config file — two env vars, read once at session start:
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `PI_BASH_TIMEOUT_DEFAULT` | `120` | Seconds used when `timeout` is omitted |
-| `PI_BASH_TIMEOUT_MS_THRESHOLD` | `10000` | Values ≥ this are treated as milliseconds |
-| `PI_BASH_TIMEOUT_MAX` | `1800` | Hard ceiling in seconds, after unit correction |
+| `PI_BASH_TIMEOUT_DEFAULT_MS` | `120000` | Milliseconds used when `timeout` is omitted |
+| `PI_BASH_TIMEOUT_MAX_MS` | `600000` | Hard ceiling, enforced by the tool schema |
 
 ## Limitations
 
-- The millisecond heuristic is a threshold, not a proof: a command that legitimately needs a timeout between `PI_BASH_TIMEOUT_MS_THRESHOLD` and 24.8 days in *seconds* will be misread as milliseconds and shrunk. In practice, no interactive foreground command needs a multi-hour timeout — long-running processes (dev servers, watchers) belong in the background — so this trade-off favors not hanging the session over the rare legitimate long wait. Raise `PI_BASH_TIMEOUT_MS_THRESHOLD` if your workload actually needs values in that range.
-- It only touches `bash` and `powershell`. Other tools or MCP servers with their own timeout semantics are unaffected.
+- pi executes whole seconds: sub-second timeouts round up to 1 s.
+- Over-max values are *rejected*, not capped — the model gets a validation error
+  and retries smaller. This matches Claude Code; long-lived processes (dev
+  servers, watchers) belong in the background with polling, not in a 10-minute
+  foreground timeout.
+- Overriding is last-writer-wins: if another extension also registers `bash`
+  under the same name, whichever loads later defines the tool.
+- Only `bash` and `powershell` are affected. Other tools or MCP servers with
+  their own timeout semantics are untouched.
 
 ## Test
 

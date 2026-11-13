@@ -1,78 +1,28 @@
 /**
- * Pure timeout policy for pi's bash tool. No pi imports, so it is unit-testable.
- *
- * pi's bash `timeout` is in SECONDS with no default and a ~24.8 day ceiling.
- * Models trained on millisecond APIs (Claude Code, Playwright, ...) routinely
- * pass 60000 meaning one minute, which pi runs as 16.7 hours.
+ * Timeout policy for the overridden shell tools, aligned with Claude Code's
+ * Bash tool: `timeout` is in MILLISECONDS, default 120000 (2 min), hard max
+ * 600000 (10 min). No pi imports, so it stays unit-testable.
  */
 
 export interface TimeoutPolicy {
-  /** Applied when the model omits `timeout`. */
-  defaultSeconds: number;
-  /** Values at or above this are treated as milliseconds. */
-  msThreshold: number;
-  /** Hard ceiling after conversion. */
-  maxSeconds: number;
+  /** Milliseconds applied when the model omits `timeout`. */
+  defaultMs: number;
+  /** Hard ceiling in milliseconds, enforced by the tool schema. */
+  maxMs: number;
 }
 
+/** Claude Code's Bash tool semantics. */
 export const DEFAULT_POLICY: TimeoutPolicy = {
-  defaultSeconds: 120,
-  msThreshold: 10_000,
-  maxSeconds: 1_800,
+  defaultMs: 120_000,
+  maxMs: 600_000,
 };
 
-export interface TimeoutDecision {
-  original: unknown;
-  timeout: number | undefined;
-  changed: boolean;
-  defaulted: boolean;
-  fromMilliseconds: boolean;
-  capped: boolean;
-}
-
-export function normalizeTimeout(raw: unknown, policy: TimeoutPolicy = DEFAULT_POLICY): TimeoutDecision {
-  const base = { original: raw, defaulted: false, fromMilliseconds: false, capped: false };
-
-  if (raw === undefined || raw === null) {
-    return { ...base, timeout: policy.defaultSeconds, changed: true, defaulted: true };
-  }
-  // Leave invalid values to pi's own validation error.
-  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
-    return { ...base, timeout: raw as number | undefined, changed: false };
-  }
-
-  let seconds = raw;
-  let fromMilliseconds = false;
-  if (seconds >= policy.msThreshold) {
-    seconds = seconds / 1000;
-    fromMilliseconds = true;
-  }
-  let capped = false;
-  if (seconds > policy.maxSeconds) {
-    seconds = policy.maxSeconds;
-    capped = true;
-  }
-  return { ...base, timeout: seconds, changed: fromMilliseconds || capped, fromMilliseconds, capped };
-}
-
-/** Model-facing note appended to the tool result, or undefined when nothing is worth saying. */
-export function noteFor(d: TimeoutDecision, policy: TimeoutPolicy, timedOut: boolean): string | undefined {
-  const tag = "[pi-bash-timeout]";
-  if (d.defaulted) {
-    if (!timedOut) return undefined;
-    return `${tag} No timeout was given, so the default ${policy.defaultSeconds}s applied. ` +
-      `If the command legitimately needs longer, pass timeout in SECONDS (max ${policy.maxSeconds}), ` +
-      `or run it in the background and poll.`;
-  }
-  const parts: string[] = [];
-  if (d.fromMilliseconds) {
-    parts.push(`timeout=${d.original} looked like milliseconds; bash timeout is in SECONDS, so it was read as ${Number(d.original) / 1000}s.`);
-  }
-  if (d.capped) {
-    parts.push(`Capped at the ${policy.maxSeconds}s maximum. Run long-lived processes (dev servers, watchers) in the background (nohup/tmux) and poll instead of blocking.`);
-  }
-  if (parts.length === 0) return undefined;
-  return `${tag} ${parts.join(" ")} Effective timeout: ${d.timeout}s.`;
+/**
+ * pi's shell backends take whole seconds; convert milliseconds, never below 1s.
+ * Sub-second timeouts round up to 1 second (pi's finest granularity).
+ */
+export function msToSeconds(ms: number): number {
+  return Math.max(1, Math.round(ms / 1000));
 }
 
 function positive(value: string | undefined, fallback: number): number {
@@ -81,9 +31,7 @@ function positive(value: string | undefined, fallback: number): number {
 }
 
 export function policyFromEnv(env: Record<string, string | undefined>): TimeoutPolicy {
-  return {
-    defaultSeconds: positive(env.PI_BASH_TIMEOUT_DEFAULT, DEFAULT_POLICY.defaultSeconds),
-    msThreshold: positive(env.PI_BASH_TIMEOUT_MS_THRESHOLD, DEFAULT_POLICY.msThreshold),
-    maxSeconds: positive(env.PI_BASH_TIMEOUT_MAX, DEFAULT_POLICY.maxSeconds),
-  };
+  const maxMs = positive(env.PI_BASH_TIMEOUT_MAX_MS, DEFAULT_POLICY.maxMs);
+  const defaultMs = Math.min(positive(env.PI_BASH_TIMEOUT_DEFAULT_MS, DEFAULT_POLICY.defaultMs), maxMs);
+  return { defaultMs, maxMs };
 }
