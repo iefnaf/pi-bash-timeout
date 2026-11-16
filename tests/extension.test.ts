@@ -59,12 +59,13 @@ describe("bash execute (delegates to pi's own implementation)", () => {
     expect(result.content[0].text).toContain("hello-ms");
   });
 
-  it("treats timeout as milliseconds", async () => {
+  it("treats timeout as milliseconds, exactly (#1)", async () => {
     const bash = load().get("bash")!;
-    // 1200 ms must mean ~1 second, not the 20 minutes pi used to wait.
+    // 1200 ms must mean exactly 1.2 seconds — not rounded down to 1 s (which
+    // killed commands needing the extra 200 ms) and not read as 20 minutes by pi.
     await expect(
       bash.execute("t2", { command: "sleep 5", timeout: 1_200 }, undefined, undefined, undefined),
-    ).rejects.toThrow(/timed out after 1 seconds/);
+    ).rejects.toThrow(/timed out after 1\.2 seconds/);
   });
 
   it("applies the default timeout when the call omits it", async () => {

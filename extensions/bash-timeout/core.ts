@@ -18,11 +18,13 @@ export const DEFAULT_POLICY: TimeoutPolicy = {
 };
 
 /**
- * pi's shell backends take whole seconds; convert milliseconds, never below 1s.
- * Sub-second timeouts round up to 1 second (pi's finest granularity).
+ * pi's `timeout` is in seconds and accepts fractional values — its backend
+ * just multiplies by 1000 and hands the result to setTimeout — so milliseconds
+ * convert exactly. No rounding: it would shift the requested deadline in both
+ * directions (1200 ms became 1 s, 150 ms became 1 s). See issue #1.
  */
 export function msToSeconds(ms: number): number {
-  return Math.max(1, Math.round(ms / 1000));
+  return ms / 1000;
 }
 
 function positive(value: string | undefined, fallback: number): number {

@@ -1,6 +1,6 @@
 {
   "name": "pi-bash-timeout",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "pi extension: bash/powershell timeout in milliseconds, aligned with Claude Code's Bash tool (default 120000 ms, max 600000 ms)",
   "keywords": [
     "pi-package",

@@ -69,9 +69,9 @@ built-ins by name (pi's documented tool-override mechanism). The registration
 spreads pi's own tool definitions (`createBashToolDefinition` /
 `createPowerShellToolDefinition`), so renderers, output schema, prompt snippets,
 and constrained sampling stay identical; only the `timeout` parameter is
-re-declared in milliseconds, and `execute` converts to whole seconds at the
-boundary (sub-second values round up to pi's 1-second granularity) before
-delegating to pi's implementation.
+re-declared in milliseconds, and `execute` converts them to seconds exactly
+(pi accepts fractional seconds — its backend multiplies by 1000 for setTimeout)
+before delegating to pi's implementation.
 
 Because it's the same tool name:
 
@@ -106,7 +106,6 @@ No config file — two env vars, read once at session start:
 
 ## Limitations
 
-- pi executes whole seconds: sub-second timeouts round up to 1 s.
 - Over-max values are *rejected*, not capped — the model gets a validation error
   and retries smaller. This matches Claude Code; long-lived processes (dev
   servers, watchers) belong in the background with polling, not in a 10-minute

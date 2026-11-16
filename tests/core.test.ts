@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { DEFAULT_POLICY, msToSeconds, policyFromEnv } from "../extensions/bash-timeout/core.ts";
 
 describe("msToSeconds", () => {
-  it("converts milliseconds to whole seconds", () => {
+  it("converts milliseconds to seconds exactly", () => {
     expect(msToSeconds(1_000)).toBe(1);
     expect(msToSeconds(30_000)).toBe(30);
     expect(msToSeconds(45_000)).toBe(45); // the value pi used to read as 12.5 hours
@@ -10,14 +10,14 @@ describe("msToSeconds", () => {
     expect(msToSeconds(600_000)).toBe(600);
   });
 
-  it("rounds to the nearest second", () => {
-    expect(msToSeconds(1_500)).toBe(2);
-    expect(msToSeconds(90_500)).toBe(91);
+  it("keeps fractional seconds instead of rounding (#1)", () => {
+    expect(msToSeconds(1_200)).toBe(1.2); // used to round down to 1s and kill commands early
+    expect(msToSeconds(90_500)).toBe(90.5);
   });
 
-  it("clamps sub-second values to pi's 1-second granularity", () => {
-    expect(msToSeconds(1)).toBe(1);
-    expect(msToSeconds(500)).toBe(1);
+  it("preserves sub-second deadlines instead of clamping to 1s", () => {
+    expect(msToSeconds(1)).toBe(0.001);
+    expect(msToSeconds(500)).toBe(0.5);
   });
 });
 

@@ -12,7 +12,8 @@
  * is rejected up front with a clear message rather than silently misread.
  * Execution delegates to pi's own implementation
  * (`createBashToolDefinition` / `createPowerShellToolDefinition`), converting
- * milliseconds to whole seconds at the boundary, so streaming, truncation,
+ * milliseconds to seconds — exactly, since pi accepts fractional seconds — at
+ * the boundary, so streaming, truncation,
  * renderers, permissions, and other extensions' hooks keep working.
  *
  * Env overrides: PI_BASH_TIMEOUT_DEFAULT_MS, PI_BASH_TIMEOUT_MAX_MS
@@ -68,7 +69,8 @@ export default function (pi: ExtensionAPI) {
     );
   }
 
-  // The model sees milliseconds; pi executes whole seconds. The default applies
+  // The model sees milliseconds; pi executes seconds (fractional values are
+  // fine — its backend multiplies by 1000 for setTimeout). The default applies
   // when the call omits `timeout` (pi itself would arm no timer at all).
   const toSeconds = (timeoutMs: number | undefined) => msToSeconds(timeoutMs ?? policy.defaultMs);
 
